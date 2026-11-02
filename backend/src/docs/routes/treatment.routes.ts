@@ -20,10 +20,16 @@ router.use(authenticate)
  * /treatment-plans:
  *   get:
  *     summary: Lista os planos de tratamento e orçamentos
+ *     description: >
+ *       A listagem geral é da unidade ativa (visão gerencial). No Enterprise, ao filtrar por `patientId` a lista traz os planos
+ *       do paciente em **toda a rede** (um tratamento pode ter começado em outra unidade).
  *     tags: [Treatment Plans]
  *     parameters:
  *       - in: query
  *         name: patientId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: dentistId
  *         schema: { type: string, format: uuid }
  *       - in: query
  *         name: status
@@ -65,6 +71,7 @@ router.get('/', listTreatmentPlansController)
  * /treatment-plans/{id}:
  *   get:
  *     summary: Busca um plano de tratamento por ID com procedimentos vinculados
+ *     description: No Enterprise, abre também planos criados em outras unidades da rede (a resposta traz a unidade em `clinic`).
  *     tags: [Treatment Plans]
  *     parameters:
  *       - in: path
@@ -84,6 +91,10 @@ router.get('/:id', getTreatmentPlanByIdController)
  * /treatment-plans:
  *   post:
  *     summary: Cria um novo plano de tratamento ou orçamento (ADMIN ou DENTIST)
+ *     description: >
+ *       O valor total é **calculado pelo servidor** (soma de `quantity × actualPrice`); não envie `totalAmount`.
+ *       O plano pertence à unidade ativa. No Enterprise o paciente pode ser de qualquer unidade da rede, e os procedimentos
+ *       precisam estar ativos na unidade. O dentista precisa atuar na unidade.
  *     tags: [Treatment Plans]
  *     requestBody:
  *       required: true
@@ -91,15 +102,15 @@ router.get('/:id', getTreatmentPlanByIdController)
  *         application/json:
  *           schema:
  *             type: object
- *             required: [patientId, dentistId, title, totalAmount]
+ *             required: [patientId, dentistId, title, procedures]
  *             properties:
  *               patientId: { type: string, format: uuid }
  *               dentistId: { type: string, format: uuid }
  *               title: { type: string, example: 'Reabilitação Oral Superior' }
- *               totalAmount: { type: number, example: 3500.00 }
  *               notes: { type: string }
  *               procedures:
  *                 type: array
+ *                 minItems: 1
  *                 items:
  *                   type: object
  *                   required: [procedureId, quantity, actualPrice]
@@ -109,7 +120,9 @@ router.get('/:id', getTreatmentPlanByIdController)
  *                     actualPrice: { type: number, example: 350.00 }
  *     responses:
  *       201:
- *         description: Plano de tratamento criado com sucesso
+ *         description: Plano de tratamento criado com sucesso (com `totalAmount` calculado)
+ *       400:
+ *         description: O plano precisa de ao menos um procedimento
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:
@@ -121,7 +134,10 @@ router.post('/', authorize('ADMIN', 'DENTIST'), createTreatmentPlanController)
  * @openapi
  * /treatment-plans/{id}:
  *   put:
- *     summary: Atualiza um plano de tratamento (ADMIN ou DENTIST)
+ *     summary: Atualiza um plano de tratamento (ADMIN ou DENTIST; somente na unidade que o criou)
+ *     description: >
+ *       Se `procedures` for enviado, a lista substitui a anterior e o total é recalculado. Planos APROVADO, EM_ANDAMENTO ou CONCLUIDO
+ *       não aceitam troca de procedimentos (400).
  *     tags: [Treatment Plans]
  *     parameters:
  *       - in: path
@@ -136,11 +152,21 @@ router.post('/', authorize('ADMIN', 'DENTIST'), createTreatmentPlanController)
  *             type: object
  *             properties:
  *               title: { type: string }
- *               totalAmount: { type: number }
  *               notes: { type: string }
+ *               procedures:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [procedureId, quantity, actualPrice]
+ *                   properties:
+ *                     procedureId: { type: string, format: uuid }
+ *                     quantity: { type: integer }
+ *                     actualPrice: { type: number }
  *     responses:
  *       200:
  *         description: Plano atualizado com sucesso
+ *       400:
+ *         description: Plano aprovado/em andamento/concluído não aceita troca de procedimentos
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:
@@ -153,6 +179,9 @@ router.put('/:id', authorize('ADMIN', 'DENTIST'), updateTreatmentPlanController)
  * /treatment-plans/{id}/status:
  *   patch:
  *     summary: Atualiza o status de um plano de tratamento
+ *     description: >
+ *       Transições permitidas: ORCAMENTO → APROVADO | RECUSADO; APROVADO → EM_ANDAMENTO | RECUSADO; EM_ANDAMENTO → CONCLUIDO.
+ *       CONCLUIDO e RECUSADO são finais. Somente na unidade que criou o plano.
  *     tags: [Treatment Plans]
  *     parameters:
  *       - in: path
@@ -173,6 +202,8 @@ router.put('/:id', authorize('ADMIN', 'DENTIST'), updateTreatmentPlanController)
  *     responses:
  *       200:
  *         description: Status atualizado com sucesso
+ *       400:
+ *         description: Transição de status inválida
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:
@@ -184,7 +215,7 @@ router.patch('/:id/status', authorize('ADMIN', 'DENTIST', 'SECRETARY'), updateTr
  * @openapi
  * /treatment-plans/{id}:
  *   delete:
- *     summary: Remove um plano de tratamento (apenas ADMIN)
+ *     summary: Remove um plano de tratamento (ADMIN/OWNER; apenas em ORCAMENTO ou RECUSADO)
  *     tags: [Treatment Plans]
  *     parameters:
  *       - in: path
@@ -194,6 +225,8 @@ router.patch('/:id/status', authorize('ADMIN', 'DENTIST', 'SECRETARY'), updateTr
  *     responses:
  *       204:
  *         description: Plano removido com sucesso
+ *       400:
+ *         description: Plano aprovado ou em andamento não pode ser deletado
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:

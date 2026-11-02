@@ -130,6 +130,7 @@ router.use(authenticate)
  * /suppliers:
  *   post:
  *     summary: Cadastra um novo fornecedor
+ *     description: Fornecedores são por unidade (cada clínica da rede mantém os seus). Não há restrição de papel nesta rota (qualquer usuário autenticado).
  *     tags: [Suppliers]
  *     security:
  *       - bearerAuth: []

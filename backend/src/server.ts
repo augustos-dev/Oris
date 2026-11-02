@@ -4,7 +4,7 @@ import cors from 'cors'
 import path from 'path' // 👈 1. Import do path
 import router from './routes/index'
 import { errorHandler } from './middlewares/errorHandler.middleware'
-import { apiLimiter } from './middlewares/rateLimiter.middleware'
+import { apiLimiter, loginLimiter } from './middlewares/rateLimiter.middleware'
 import { assertRequiredEnv } from './config/env'
 import { swaggerSpec } from './docs/Swagger'
 import swaggerUi from 'swagger-ui-express'
@@ -56,6 +56,7 @@ app.use(express.json())
 // Limite geral por IP e limite estrito de login (o rateLimiter.middleware existia, mas não estava montado em lugar nenhum).
 // O limiter de login usa req.body.email, por isso vem DEPOIS do express.json().
 app.use('/api', apiLimiter)
+app.use('/api/auth/login', loginLimiter)
 
 // /uploads/temp guarda áudios de consultas (dado de saúde): nunca servir, mesmo que o arquivo exista.
 app.use('/uploads/temp', (_req, res) => {
@@ -71,7 +72,7 @@ app.use(
 )
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customSiteTitle: 'Oris API',
+  customSiteTitle: 'Oris API — Documentação',
 }))
 
 app.use('/api', router)
@@ -85,7 +86,7 @@ app.use(errorHandler)
 const portNumber = Number(PORT)
 
 app.listen(portNumber, '0.0.0.0', () => {
-  console.log(`🚀 OdontoFlow API rodando com sucesso na porta ${portNumber}!`)
+  console.log(`🚀 Oris API rodando com sucesso na porta ${portNumber}!`)
   console.log(`📖 Swagger em http://localhost:${portNumber}/docs`)
   console.log(`📁 Pasta de uploads acessível em http://localhost:${portNumber}/uploads`)
 }).on('error', (err) => {

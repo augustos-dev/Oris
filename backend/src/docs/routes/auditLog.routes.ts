@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { auditLogController } from '../../controllers/auditLogController';
-import { authenticate } from '../../middlewares/authMiddlewares';
+import { authenticate, authorize } from '../../middlewares/authMiddlewares';
 
 const router = Router();
 
 router.use(authenticate);
+
+// Somente ADMIN/OWNER (a versão desta rota sem `authorize` deixava qualquer papel ler a auditoria).
 
 /**
  * @swagger
@@ -17,7 +19,10 @@ router.use(authenticate);
  * @swagger
  * /audit-logs:
  *   get:
- *     summary: Lista os logs de auditoria da clínica com paginação
+ *     summary: Lista os logs de auditoria da clínica (ou da rede inteira, para o OWNER) com paginação
+ *     description: >
+ *       Acessos a prontuário/cadastro de paciente registrado em outra unidade da rede aparecem com `action: READ`.
+ *       Somente ADMIN e OWNER.
  *     tags: [AuditLogs]
  *     security:
  *       - bearerAuth: []
@@ -33,7 +38,11 @@ router.use(authenticate);
  *         schema:
  *           type: integer
  *           default: 20
- *         description: Quantidade de registros por página
+ *         description: Quantidade de registros por página (máximo 100)
+ *       - in: query
+ *         name: scope
+ *         schema: { type: string, enum: [clinic, network], default: clinic }
+ *         description: "`network` lista as unidades do tenant (exclusivo do OWNER; 403 para os demais)"
  *     responses:
  *       200:
  *         description: Lista de logs retornada com sucesso
@@ -54,12 +63,22 @@ router.use(authenticate);
  *                 logs:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/AuditLog'
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/AuditLog'
+ *                       - type: object
+ *                         properties:
+ *                           clinic:
+ *                             type: object
+ *                             properties:
+ *                               id: { type: string, format: uuid }
+ *                               name: { type: string }
  *       401:
  *         description: Não autorizado / Token inválido
+ *       403:
+ *         description: Papel sem acesso à auditoria, ou scope=network por quem não é OWNER
  *       500:
  *         description: Erro interno do servidor
  */
-router.get('/', auditLogController.listLogs);
+router.get('/', authorize('ADMIN'), auditLogController.listLogs);
 
 export default router;

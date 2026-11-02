@@ -1,3 +1,5 @@
+// backend/src/routes/clinic.routes.ts
+
 import { Router } from 'express'
 import {
   createClinicController,
@@ -24,179 +26,49 @@ router.use(authenticate)
 
 /**
  * @openapi
- * /clinics:
- *   get:
- *     summary: Lista clínicas do tenant
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: name
- *         schema: { type: string }
- *       - in: query
- *         name: isActive
- *         schema: { type: boolean }
- *       - in: query
- *         name: page
- *         schema: { type: integer, minimum: 1, default: 1 }
- *       - in: query
- *         name: limit
- *         schema: { type: integer, minimum: 1, default: 20 }
- *     responses:
- *       200: { description: Lista de clínicas com paginação }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *   post:
- *     summary: Cria uma clínica no tenant
- *     description: Requer ADMIN. No plano Enterprise, somente OWNER pode criar unidades; os limites contratados do plano são aplicados.
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [name]
- *             properties:
- *               name: { type: string, example: "Unidade Centro" }
- *               cnpj: { type: string }
- *               phone: { type: string }
- *               email: { type: string, format: email }
- *               address: { type: string }
- *               logoUrl: { type: string, format: uri }
- *               paymentIntegrationActive: { type: boolean, default: false }
- *     responses:
- *       201: { description: Clínica criada }
- *       400: { description: Dados inválidos }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Papel sem permissão, assinatura inativa ou limite de unidades atingido }
- *       409: { description: CNPJ já cadastrado }
+ * components:
+ *   schemas:
+ *     ClinicProcedureLink:
+ *       type: object
+ *       description: Ativação e preço de um procedimento da rede em uma unidade (plano Enterprise)
+ *       properties:
+ *         id: { type: string, format: uuid }
+ *         clinicId: { type: string, format: uuid }
+ *         procedureId: { type: string, format: uuid }
+ *         isActive: { type: boolean }
+ *         price: { type: number, nullable: true, description: "null = usa o preço base do procedimento" }
  */
-router.get('/', listClinicsController)
-router.post('/', authorize('ADMIN'), createClinicController)
 
-/**
- * @openapi
- * /clinics/{id}:
- *   get:
- *     summary: Busca uma clínica pelo ID
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200: { description: Clínica encontrada }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       404: { $ref: '#/components/responses/NotFound' }
- *   put:
- *     summary: Atualiza os dados cadastrais de uma clínica
- *     description: Requer ADMIN e, no Enterprise, OWNER ou administrador da própria unidade. O status isActive não pode ser alterado por esta operação; use deactivate/reactivate.
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name: { type: string }
- *               cnpj: { type: string }
- *               phone: { type: string }
- *               email: { type: string, format: email }
- *               address: { type: string }
- *               logoUrl: { type: string, format: uri }
- *               paymentIntegrationActive: { type: boolean }
- *     responses:
- *       200: { description: Clínica atualizada }
- *       400: { description: Dados inválidos ou tentativa de alterar isActive por esta rota }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
- *       409: { description: CNPJ já cadastrado }
- */
-router.get('/:id', getClinicByIdController)
-router.put('/:id', authorize('ADMIN'), ownClinicOrOwner, updateClinicController)
-
-/**
- * @openapi
- * /clinics/{id}/deactivate:
- *   patch:
- *     summary: Desativa uma unidade clínica
- *     description: Requer ADMIN; no plano Enterprise, a regra do serviço restringe a ação ao OWNER.
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200: { description: Clínica desativada }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
- */
-router.patch('/:id/deactivate', authorize('ADMIN'), deactivateClinicController)
-
-/**
- * @openapi
- * /clinics/{id}/reactivate:
- *   patch:
- *     summary: Reativa uma unidade clínica
- *     description: Requer ADMIN; no plano Enterprise, a regra do serviço restringe a ação ao OWNER e aplica o limite de unidades.
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200: { description: Clínica reativada }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Sem permissão ou limite de clínicas do plano atingido }
- *       404: { $ref: '#/components/responses/NotFound' }
- */
-router.patch('/:id/reactivate', authorize('ADMIN'), reactivateClinicController)
+// ─── White-Label & Customização Visual ───────────────────────────────────────
 
 /**
  * @openapi
  * /clinics/{id}/customization:
  *   get:
- *     summary: Consulta a identidade visual de uma clínica
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
+ *     summary: Obtém os parâmetros de identidade visual da clínica (cores, logos e tipografia)
+ *     tags: [Clinics - White-label]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema: { type: string, format: uuid }
  *     responses:
- *       200: { description: Configuração visual retornada }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *       200:
+ *         description: Configurações visuais retornadas com sucesso
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.get('/:id/customization', getClinicCustomizationController)
+
+/**
+ * @openapi
+ * /clinics/{id}/customization:
  *   put:
- *     summary: Atualiza a identidade visual de uma clínica
- *     description: Requer ADMIN e, no Enterprise, OWNER ou administrador da própria unidade.
- *     tags: [Clinics]
- *     security:
- *       - bearerAuth: []
+ *     summary: Atualiza o tema, paleta de cores e identidade visual da clínica (ADMIN da unidade ou OWNER)
+ *     description: No plano Enterprise, o ADMIN só altera a própria unidade; o OWNER altera qualquer uma.
+ *     tags: [Clinics - White-label]
  *     parameters:
  *       - in: path
  *         name: id
@@ -215,34 +87,107 @@ router.patch('/:id/reactivate', authorize('ADMIN'), reactivateClinicController)
  *               secondaryColor: { type: string, example: "#0f172a" }
  *               fontFamily: { type: string, enum: [Inter, Roboto, Poppins, Montserrat] }
  *               darkModeDefault: { type: boolean }
- *               customLogoUrl: { type: string, nullable: true }
- *               customFavicon: { type: string, nullable: true }
- *               customDocumentHeader: { type: string, nullable: true }
- *               customReceiptFooter: { type: string, nullable: true }
+ *               customLogoUrl: { type: string, format: uri }
+ *               customFavicon: { type: string, format: uri }
  *     responses:
- *       200: { description: Identidade visual atualizada }
- *       400: { description: Dados inválidos }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *       200:
+ *         description: Identidade visual da clínica atualizada com sucesso
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
-router.get('/:id/customization', getClinicCustomizationController)
 router.put('/:id/customization', authorize('ADMIN'), ownClinicOrOwner, updateClinicCustomizationController)
+
+// ─── Catálogo por unidade (Enterprise) ───────────────────────────────────────
+
+/**
+ * @openapi
+ * /clinics/{id}/procedures-without-recipe:
+ *   get:
+ *     summary: Procedimentos ativos na unidade que ainda NÃO têm ficha técnica (não baixam estoque)
+ *     description: Use depois de importar os produtos da filial para conferir o que falta configurar. Plano Enterprise.
+ *     tags: [Clinics - Catálogo da unidade]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Lista de procedimentos sem receita na unidade
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id: { type: string, format: uuid }
+ *                   name: { type: string }
+ *                   category: { type: string, nullable: true }
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ */
+router.get('/:id/procedures-without-recipe', authorize('ADMIN'), ownClinicOrOwner, proceduresWithoutRecipeController)
+
+/**
+ * @openapi
+ * /clinics/{id}/procedures/clone:
+ *   post:
+ *     summary: Copia os procedimentos ativos de outra unidade para esta (ação do usuário)
+ *     description: >
+ *       `{id}` é a unidade **destino**. Só ativa na destino os procedimentos que ela ainda não tem (não sobrescreve ajustes já feitos).
+ *       O procedimento da rede não é duplicado; a unidade nova nunca fica ligada à de origem. Plano Enterprise.
+ *     tags: [Clinics - Catálogo da unidade]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [fromClinicId]
+ *             properties:
+ *               fromClinicId: { type: string, format: uuid }
+ *               copyPrices: { type: boolean, default: true, description: "Copia também o preço da unidade de origem (ponto de partida)" }
+ *     responses:
+ *       200:
+ *         description: Resultado da cópia
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 copied: { type: integer, description: "Procedimentos ativados agora na unidade destino" }
+ *                 alreadyPresent: { type: integer, description: "Já existiam na unidade destino (preservados)" }
+ *       400:
+ *         description: fromClinicId ausente ou igual à unidade destino
+ *       403:
+ *         description: Plano sem catálogo por unidade, ou sem permissão sobre a unidade
+ *       404:
+ *         description: Unidade não encontrada neste tenant
+ */
+router.post('/:id/procedures/clone', authorize('ADMIN'), ownClinicOrOwner, cloneClinicProceduresController)
 
 /**
  * @openapi
  * /clinics/{id}/procedures/{procedureId}:
  *   patch:
- *     summary: Ativa ou desativa um procedimento e define seu preço para a unidade
- *     description: Recurso do catálogo por unidade Enterprise. Requer ADMIN da unidade de destino ou OWNER.
- *     tags: [Clinic catalog]
- *     security:
- *       - bearerAuth: []
+ *     summary: Ativa/desativa um procedimento da rede nesta unidade e define o preço local
+ *     tags: [Clinics - Catálogo da unidade]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         description: ID da unidade que será configurada
  *         schema: { type: string, format: uuid }
  *       - in: path
  *         name: procedureId
@@ -254,33 +199,39 @@ router.put('/:id/customization', authorize('ADMIN'), ownClinicOrOwner, updateCli
  *         application/json:
  *           schema:
  *             type: object
- *             minProperties: 1
  *             properties:
  *               isActive: { type: boolean }
- *               price: { type: number, minimum: 0, nullable: true, description: null usa o preço-base do catálogo }
+ *               price: { type: number, nullable: true, description: "null volta a usar o preço base da rede" }
  *     responses:
- *       200: { description: Configuração do procedimento na unidade atualizada }
- *       400: { description: Preço ou status inválido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Recurso exige Enterprise ou usuário sem acesso à unidade }
- *       404: { description: Procedimento ou clínica não encontrados }
+ *       200:
+ *         description: Vínculo atualizado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ClinicProcedureLink'
+ *       400:
+ *         description: isActive não booleano ou preço inválido
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
 router.patch('/:id/procedures/:procedureId', authorize('ADMIN'), ownClinicOrOwner, setClinicProcedureController)
 
 /**
  * @openapi
- * /clinics/{id}/procedures/clone:
+ * /clinics/{id}/recipes/reconcile:
  *   post:
- *     summary: Copia o catálogo de procedimentos de outra unidade
- *     description: A unidade do path é o destino. Copia somente os vínculos ainda inexistentes; não substitui configurações já presentes.
- *     tags: [Clinic catalog]
- *     security:
- *       - bearerAuth: []
+ *     summary: Recria na unidade as fichas técnicas de outra unidade, casando os produtos pelo nome
+ *     description: >
+ *       `{id}` é a unidade **destino**. Rode depois de importar os produtos da filial (pode rodar várias vezes: só entra o que ainda não existia).
+ *       O nome é comparado sem acento, caixa ou espaços extras; a quantidade da origem entra como ponto de partida para editar.
+ *       Considera apenas procedimentos ativos na unidade destino. `pending` lista o que não achou produto equivalente. Plano Enterprise.
+ *     tags: [Clinics - Catálogo da unidade]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         description: ID da unidade de destino
  *         schema: { type: string, format: uuid }
  *     requestBody:
  *       required: true
@@ -290,66 +241,91 @@ router.patch('/:id/procedures/:procedureId', authorize('ADMIN'), ownClinicOrOwne
  *             type: object
  *             required: [fromClinicId]
  *             properties:
- *               fromClinicId: { type: string, format: uuid, description: Unidade de origem }
- *               copyPrices: { type: boolean, default: true }
+ *               fromClinicId: { type: string, format: uuid }
  *     responses:
  *       200:
- *         description: Resultado da cópia
+ *         description: Resultado da reconciliação
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 copied: { type: integer }
- *                 alreadyPresent: { type: integer }
- *       400: { description: Unidade de origem ausente ou inválida }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Recurso exige Enterprise ou usuário sem acesso à unidade }
- *       404: { $ref: '#/components/responses/NotFound' }
- */
-router.post('/:id/procedures/clone', authorize('ADMIN'), ownClinicOrOwner, cloneClinicProceduresController)
-
-/**
- * @openapi
- * /clinics/{id}/recipes/reconcile:
- *   post:
- *     summary: Recria receitas de procedimentos usando os produtos da unidade de destino
- *     description: A unidade do path é o destino; os produtos são associados por nome normalizado. Itens sem correspondência são retornados como pendências.
- *     tags: [Clinic catalog]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID da unidade de destino
- *         schema: { type: string, format: uuid }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [fromClinicId]
- *             properties:
- *               fromClinicId: { type: string, format: uuid, description: Unidade da qual serão lidas as receitas }
- *     responses:
- *       200: { description: Quantidade criada e itens pendentes de correspondência }
- *       400: { description: Unidades de origem e destino devem ser diferentes }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Recurso exige Enterprise ou usuário sem acesso à unidade }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *                 created: { type: integer }
+ *                 pending:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       procedureId: { type: string, format: uuid }
+ *                       productName: { type: string, example: "Pomada A" }
+ *       400:
+ *         description: fromClinicId ausente ou igual à unidade destino
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
 router.post('/:id/recipes/reconcile', authorize('ADMIN'), ownClinicOrOwner, reconcileRecipesController)
 
+// ─── Clínicas ────────────────────────────────────────────────────────────────
+
 /**
  * @openapi
- * /clinics/{id}/procedures-without-recipe:
+ * /clinics:
  *   get:
- *     summary: Lista procedimentos ativos sem receita de estoque na unidade
- *     tags: [Clinic catalog]
- *     security:
- *       - bearerAuth: []
+ *     summary: Lista as clínicas do tenant (paginado)
+ *     tags: [Clinics]
+ *     parameters:
+ *       - in: query
+ *         name: name
+ *         schema: { type: string }
+ *       - in: query
+ *         name: isActive
+ *         schema: { type: boolean }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Lista paginada de clínicas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: string, format: uuid }
+ *                       name: { type: string }
+ *                       cnpj: { type: string }
+ *                       phone: { type: string }
+ *                       email: { type: string }
+ *                       address: { type: string }
+ *                       isActive: { type: boolean }
+ *                       _count:
+ *                         type: object
+ *                         properties:
+ *                           users: { type: integer }
+ *                           patients: { type: integer }
+ *                           appointments: { type: integer }
+ *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.get('/', listClinicsController)
+
+/**
+ * @openapi
+ * /clinics/{id}:
+ *   get:
+ *     summary: Busca uma clínica por ID
+ *     tags: [Clinics]
  *     parameters:
  *       - in: path
  *         name: id
@@ -357,15 +333,141 @@ router.post('/:id/recipes/reconcile', authorize('ADMIN'), ownClinicOrOwner, reco
  *         schema: { type: string, format: uuid }
  *     responses:
  *       200:
- *         description: Procedimentos que ainda não têm insumos configurados para esta unidade
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items: { type: object, properties: { id: { type: string }, name: { type: string } } }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Recurso exige Enterprise ou usuário sem acesso à unidade }
+ *         description: Dados completos da clínica
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
-router.get('/:id/procedures-without-recipe', authorize('ADMIN'), ownClinicOrOwner, proceduresWithoutRecipeController)
+router.get('/:id', getClinicByIdController)
+
+/**
+ * @openapi
+ * /clinics:
+ *   post:
+ *     summary: Cria uma nova unidade (respeita o limite de clínicas do pacote contratado)
+ *     description: >
+ *       Planos Basic/Premium têm 1 clínica. No Enterprise o limite é o `maxClinics` contratado e **somente o OWNER** cria unidades.
+ *       A unidade nasce vazia: sem produtos, sem procedimentos ativos e sem fichas técnicas. Use `/clinics/{id}/procedures/clone`
+ *       e `/clinics/{id}/recipes/reconcile` para configurá-la.
+ *     tags: [Clinics]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name: { type: string, example: 'Sorriso Prime - Filial Norte' }
+ *               cnpj: { type: string, example: '11222333000199' }
+ *               phone: { type: string }
+ *               email: { type: string, format: email }
+ *               address: { type: string }
+ *               logoUrl: { type: string }
+ *               paymentIntegrationActive: { type: boolean }
+ *     responses:
+ *       201:
+ *         description: Clínica criada com sucesso
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Limite de clínicas do pacote atingido, assinatura inativa, ou (Enterprise) usuário não é OWNER
+ *       409:
+ *         $ref: '#/components/responses/Conflict'
+ */
+router.post('/', authorize('ADMIN'), createClinicController)
+
+/**
+ * @openapi
+ * /clinics/{id}:
+ *   put:
+ *     summary: Atualiza os dados cadastrais de uma clínica (ADMIN da unidade ou OWNER)
+ *     description: >
+ *       Apenas os campos listados são aceitos; o restante do corpo é ignorado. Para ativar/desativar use `/deactivate` e `/reactivate`
+ *       (enviar `isActive` diferente do atual retorna 400). No Enterprise o ADMIN só altera a própria unidade.
+ *     tags: [Clinics]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               cnpj: { type: string }
+ *               phone: { type: string }
+ *               email: { type: string }
+ *               address: { type: string }
+ *               logoUrl: { type: string }
+ *               paymentIntegrationActive: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Clínica atualizada com sucesso
+ *       400:
+ *         description: Tentativa de alterar `isActive` por esta rota
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         $ref: '#/components/responses/Conflict'
+ */
+router.put('/:id', authorize('ADMIN'), ownClinicOrOwner, updateClinicController)
+
+/**
+ * @openapi
+ * /clinics/{id}/deactivate:
+ *   patch:
+ *     summary: Desativa uma clínica (no Enterprise, somente o OWNER)
+ *     tags: [Clinics]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Clínica desativada com sucesso
+ *       400:
+ *         description: Não é possível desativar a única clínica ativa do tenant
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.patch('/:id/deactivate', authorize('ADMIN'), deactivateClinicController)
+
+/**
+ * @openapi
+ * /clinics/{id}/reactivate:
+ *   patch:
+ *     summary: Reativa uma clínica desativada (respeita o limite do pacote; no Enterprise, somente o OWNER)
+ *     tags: [Clinics]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Clínica reativada com sucesso
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Limite de clínicas do pacote atingido, ou usuário não é OWNER (Enterprise)
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.patch('/:id/reactivate', authorize('ADMIN'), reactivateClinicController)
 
 export default router

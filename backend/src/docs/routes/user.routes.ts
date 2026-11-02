@@ -1,3 +1,5 @@
+// backend/src/routes/user.routes.ts
+
 import { Router } from 'express'
 import {
   createUserController,
@@ -22,12 +24,46 @@ router.use(authenticate)
 
 /**
  * @openapi
+ * components:
+ *   schemas:
+ *     CreateUserRequest:
+ *       type: object
+ *       required: [name, email, password, role]
+ *       properties:
+ *         name: { type: string }
+ *         email: { type: string, format: email, description: "Normalizado (sem espaços e em minúsculas)" }
+ *         password: { type: string, minLength: 6 }
+ *         role:
+ *           type: string
+ *           enum: [ADMIN, DENTIST, SECRETARY, OWNER]
+ *           description: "OWNER só existe no plano Enterprise e só quem já é OWNER pode atribuí-lo"
+ *         phone: { type: string }
+ *         cro: { type: string }
+ *         defaultCommissionPercentage: { type: number }
+ *     UserSummary:
+ *       type: object
+ *       properties:
+ *         id: { type: string, format: uuid }
+ *         tenantId: { type: string, format: uuid }
+ *         clinicId: { type: string, format: uuid, description: "Unidade principal do usuário" }
+ *         name: { type: string }
+ *         email: { type: string }
+ *         role: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
+ *         phone: { type: string, nullable: true }
+ *         cro: { type: string, nullable: true }
+ *         avatarUrl: { type: string, nullable: true }
+ *         isActive: { type: boolean }
+ *         lastLoginAt: { type: string, format: date-time, nullable: true }
+ */
+
+// ─── Própria conta ───────────────────────────────────────────────────────────
+
+/**
+ * @openapi
  * /users/me/change-password:
  *   patch:
  *     summary: Altera a senha do usuário autenticado
  *     tags: [Users]
- *     security:
- *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -36,34 +72,39 @@ router.use(authenticate)
  *             type: object
  *             required: [currentPassword, newPassword]
  *             properties:
- *               currentPassword: { type: string, format: password }
- *               newPassword: { type: string, format: password, minLength: 6 }
+ *               currentPassword: { type: string }
+ *               newPassword: { type: string, minLength: 6 }
  *     responses:
- *       200: { description: Senha alterada com sucesso }
- *       400: { description: Senha atual incorreta ou nova senha inválida }
- *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       200:
+ *         description: Senha alterada com sucesso
+ *       401:
+ *         description: Senha atual incorreta ou token inválido
  */
 router.patch('/me/change-password', changePasswordController)
+
+// ─── Permissões granulares (RBAC) ────────────────────────────────────────────
 
 /**
  * @openapi
  * /users/permissions/{role}:
  *   get:
- *     summary: Consulta as permissões de um perfil
- *     description: Requer ADMIN; OWNER também é aceito.
- *     tags: [Users, RBAC]
- *     security:
- *       - bearerAuth: []
+ *     summary: Lista as permissões granulares de um papel na unidade ativa (ADMIN/OWNER)
+ *     description: >
+ *       Retorna as regras da unidade e as regras globais do tenant. Quando existem as duas para o mesmo módulo, vale a da unidade.
+ *       Se o papel ainda não tem regras, as padrões são criadas.
+ *     tags: [Users - RBAC]
  *     parameters:
  *       - in: path
  *         name: role
  *         required: true
  *         schema: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
  *     responses:
- *       200: { description: Matriz de permissões do perfil }
- *       400: { description: Perfil inválido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
+ *       200:
+ *         description: Lista de módulos e permissões do papel
+ *       400:
+ *         description: Papel inválido
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/permissions/:role', authorize('ADMIN'), getRolePermissionsController)
 
@@ -71,11 +112,9 @@ router.get('/permissions/:role', authorize('ADMIN'), getRolePermissionsControlle
  * @openapi
  * /users/permissions:
  *   put:
- *     summary: Atualiza permissões por perfil e módulo
- *     description: Requer ADMIN e o recurso CUSTOM_PERMISSIONS habilitado no plano.
- *     tags: [Users, RBAC]
- *     security:
- *       - bearerAuth: []
+ *     summary: Atualiza permissões de acesso em lote para um papel, na unidade ativa (ADMIN/OWNER)
+ *     description: ADMIN e OWNER têm acesso total e fixo (não editável).
+ *     tags: [Users - RBAC]
  *     requestBody:
  *       required: true
  *       content:
@@ -84,8 +123,13 @@ router.get('/permissions/:role', authorize('ADMIN'), getRolePermissionsControlle
  *             type: object
  *             required: [role, permissions]
  *             properties:
- *               role: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
- *               clinicId: { type: string, format: uuid, nullable: true }
+ *               role:
+ *                 type: string
+ *                 enum: [DENTIST, SECRETARY]
+ *               clinicId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Opcional. Padrão é a unidade ativa.
  *               permissions:
  *                 type: array
  *                 items:
@@ -94,27 +138,30 @@ router.get('/permissions/:role', authorize('ADMIN'), getRolePermissionsControlle
  *                   properties:
  *                     module:
  *                       type: string
- *                       enum: [DASHBOARD, AGENDA, PATIENTS, RECORDS, STOCK, FINANCIAL, PROCEDURES, SUPPLIERS, SETTINGS, REPORTS, AI_TRANSCRIPTION, COMMISSIONS, TASKS, MY_OFFICE, INSURANCE_BATCHES, RECEIVABLES]
+ *                       enum: [DASHBOARD, AGENDA, PATIENTS, RECORDS, STOCK, FINANCIAL, PROCEDURES, SUPPLIERS, SETTINGS, REPORTS, AI_TRANSCRIPTION, COMMISSIONS, TASKS, MY_OFFICE, RECEIVABLES, INSURANCE_BATCHES]
  *                     canRead: { type: boolean }
  *                     canCreate: { type: boolean }
  *                     canUpdate: { type: boolean }
  *                     canDelete: { type: boolean }
  *     responses:
- *       200: { description: Permissões atualizadas }
- *       400: { description: Papel ou permissões inválidos }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Apenas ADMIN e planos com permissões personalizadas }
+ *       200:
+ *         description: Permissões atualizadas com sucesso
+ *       400:
+ *         description: Não é permitido alterar permissões de ADMIN/OWNER ou dados inválidos
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.put('/permissions', authorize('ADMIN'), updateRolePermissionsController)
+
+// ─── Usuários ────────────────────────────────────────────────────────────────
 
 /**
  * @openapi
  * /users:
  *   get:
- *     summary: Lista usuários da unidade ativa
+ *     summary: Lista os usuários da unidade ativa (ADMIN/OWNER)
+ *     description: Para listar os usuários de outra unidade da rede, o OWNER troca a unidade ativa (`POST /auth/switch-clinic`).
  *     tags: [Users]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: name
@@ -127,54 +174,33 @@ router.put('/permissions', authorize('ADMIN'), updateRolePermissionsController)
  *         schema: { type: boolean }
  *       - in: query
  *         name: page
- *         schema: { type: integer, minimum: 1, default: 1 }
+ *         schema: { type: integer, default: 1 }
  *       - in: query
  *         name: limit
- *         schema: { type: integer, minimum: 1, default: 20 }
+ *         schema: { type: integer, default: 20 }
  *     responses:
- *       200: { description: Lista paginada de usuários }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *   post:
- *     summary: Cria um usuário na unidade ativa
- *     description: Requer ADMIN. tenantId e clinicId são derivados da sessão; não devem ser enviados no corpo. A criação de OWNER é restrita ao OWNER da rede Enterprise.
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [name, email, password, role]
- *             properties:
- *               name: { type: string }
- *               email: { type: string, format: email }
- *               password: { type: string, format: password, minLength: 6 }
- *               role: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
- *               phone: { type: string }
- *               cro: { type: string }
- *               defaultCommissionPercentage: { type: number, minimum: 0, maximum: 100 }
- *     responses:
- *       201: { description: Usuário criado }
- *       400: { description: Dados inválidos ou limite de profissionais atingido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Papel sem permissão ou operação restrita ao OWNER }
- *       409: { description: E-mail já cadastrado }
+ *       200:
+ *         description: Lista paginada de usuários
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items: { $ref: '#/components/schemas/UserSummary' }
+ *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/', authorize('ADMIN'), listUsersController)
-router.post('/', authorize('ADMIN'), createUserController)
 
 /**
  * @openapi
  * /users/{id}/clinics:
  *   get:
- *     summary: Lista a unidade principal e os vínculos de unidade de um usuário
- *     description: Requer ADMIN; OWNER também é aceito.
- *     tags: [Users, Clinic network]
- *     security:
- *       - bearerAuth: []
+ *     summary: Unidade principal e unidades adicionais em que o usuário atua (Enterprise)
+ *     tags: [Users - Rede]
  *     parameters:
  *       - in: path
  *         name: id
@@ -182,17 +208,28 @@ router.post('/', authorize('ADMIN'), createUserController)
  *         schema: { type: string, format: uuid }
  *     responses:
  *       200:
- *         description: Unidades principal e adicionais
+ *         description: Unidades do usuário
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 primary: { type: object }
- *                 additional: { type: array, items: { type: object } }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *                 primary:
+ *                   type: object
+ *                   properties:
+ *                     id: { type: string, format: uuid }
+ *                     name: { type: string }
+ *                 additional:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: string, format: uuid }
+ *                       name: { type: string }
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
 router.get('/:id/clinics', authorize('ADMIN'), listUserClinicsController)
 
@@ -200,50 +237,49 @@ router.get('/:id/clinics', authorize('ADMIN'), listUserClinicsController)
  * @openapi
  * /users/{id}/clinics/{clinicId}:
  *   post:
- *     summary: Vincula um usuário a uma unidade adicional
- *     description: Requer ADMIN na rota; a operação exige Enterprise e é autorizada somente ao OWNER pelo serviço. A unidade principal não deve ser vinculada novamente.
- *     tags: [Users, Clinic network]
- *     security:
- *       - bearerAuth: []
+ *     summary: Vincula o usuário a uma unidade adicional (somente OWNER, plano Enterprise)
+ *     description: >
+ *       Permite que um profissional atue em mais de uma unidade (ele passa a poder trocar para a unidade em `POST /auth/switch-clinic`
+ *       e a ser escalado nas agendas dela). As permissões padrão do papel são criadas na unidade, se ainda não existirem.
+ *     tags: [Users - Rede]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         description: ID do usuário
  *         schema: { type: string, format: uuid }
  *       - in: path
  *         name: clinicId
  *         required: true
- *         description: ID da unidade adicional
  *         schema: { type: string, format: uuid }
  *     responses:
- *       201: { description: Vínculo criado ou existente retornado }
- *       400: { description: Unidade já é a principal do usuário }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Requer plano Enterprise e papel OWNER }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *       201:
+ *         description: Vínculo criado (ou já existente)
+ *       400:
+ *         description: Esta já é a unidade principal do usuário
+ *       403:
+ *         description: Plano sem rede, ou usuário não é OWNER
+ *       404:
+ *         description: Usuário ou unidade não encontrados
  *   delete:
- *     summary: Remove o vínculo de um usuário com uma unidade adicional
- *     description: Requer ADMIN na rota; a operação exige Enterprise e é autorizada somente ao OWNER pelo serviço. Não remove a unidade principal.
- *     tags: [Users, Clinic network]
- *     security:
- *       - bearerAuth: []
+ *     summary: Remove o vínculo do usuário com uma unidade adicional (somente OWNER)
+ *     description: A unidade principal (`clinicId` do usuário) não pode ser removida por esta rota.
+ *     tags: [Users - Rede]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         description: ID do usuário
  *         schema: { type: string, format: uuid }
  *       - in: path
  *         name: clinicId
  *         required: true
- *         description: ID da unidade adicional
  *         schema: { type: string, format: uuid }
  *     responses:
- *       204: { description: Vínculo removido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Operação exclusiva do OWNER }
- *       404: { description: Vínculo não encontrado }
+ *       204:
+ *         description: Vínculo removido
+ *       403:
+ *         description: Usuário não é OWNER
+ *       404:
+ *         description: Vínculo não encontrado
  */
 router.post('/:id/clinics/:clinicId', authorize('ADMIN'), assignUserClinicController)
 router.delete('/:id/clinics/:clinicId', authorize('ADMIN'), removeUserClinicController)
@@ -252,26 +288,62 @@ router.delete('/:id/clinics/:clinicId', authorize('ADMIN'), removeUserClinicCont
  * @openapi
  * /users/{id}:
  *   get:
- *     summary: Busca um usuário pelo ID
+ *     summary: Busca um usuário da unidade ativa por ID (ADMIN/OWNER)
  *     tags: [Users]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema: { type: string, format: uuid }
  *     responses:
- *       200: { description: Usuário encontrado }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
- *   put:
- *     summary: Atualiza os dados de perfil de um usuário
- *     description: Requer ADMIN; tenantId, clinicId, role e status não são alterados por este endpoint.
+ *       200:
+ *         description: Dados do usuário
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserSummary'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.get('/:id', authorize('ADMIN'), getUserByIdController)
+
+/**
+ * @openapi
+ * /users:
+ *   post:
+ *     summary: Cria um novo usuário na unidade ativa (ADMIN/OWNER)
+ *     description: >
+ *       Dentistas respeitam o limite de profissionais do pacote contratado (403 ao atingir). O papel OWNER só pode ser
+ *       atribuído por outro OWNER, no plano Enterprise. Cria as permissões padrão do papel na unidade.
  *     tags: [Users]
- *     security:
- *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateUserRequest'
+ *     responses:
+ *       201:
+ *         description: Usuário criado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserSummary'
+ *       403:
+ *         description: Sem permissão, limite de profissionais atingido ou atribuição de OWNER não permitida
+ *       409:
+ *         $ref: '#/components/responses/Conflict'
+ */
+router.post('/', authorize('ADMIN'), createUserController)
+
+/**
+ * @openapi
+ * /users/{id}:
+ *   put:
+ *     summary: Atualiza dados de um usuário da unidade ativa (ADMIN/OWNER)
+ *     tags: [Users]
  *     parameters:
  *       - in: path
  *         name: id
@@ -285,46 +357,27 @@ router.delete('/:id/clinics/:clinicId', authorize('ADMIN'), removeUserClinicCont
  *             type: object
  *             properties:
  *               name: { type: string }
- *               phone: { type: string, nullable: true }
- *               cro: { type: string, nullable: true }
- *               avatarUrl: { type: string, nullable: true }
- *               defaultCommissionPercentage: { type: number, minimum: 0, maximum: 100, nullable: true }
+ *               phone: { type: string }
+ *               cro: { type: string }
+ *               avatarUrl: { type: string }
  *     responses:
- *       200: { description: Perfil atualizado }
- *       400: { description: Dados inválidos }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
- *   delete:
- *     summary: Exclui um usuário
- *     description: Requer ADMIN.
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       204: { description: Usuário removido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *       200:
+ *         description: Usuário atualizado com sucesso
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
-router.get('/:id', authorize('ADMIN'), getUserByIdController)
 router.put('/:id', authorize('ADMIN'), updateUserController)
-router.delete('/:id', authorize('ADMIN'), deleteUserController)
 
 /**
  * @openapi
  * /users/{id}/role:
  *   patch:
- *     summary: Altera o papel de um usuário
- *     description: Requer ADMIN; somente OWNER pode atribuir ou alterar o papel OWNER.
+ *     summary: Altera o papel de um usuário (ADMIN/OWNER; você não altera o seu próprio)
+ *     description: >
+ *       Promover a DENTIST respeita o limite de profissionais. `OWNER` só pode ser atribuído ou alterado por outro OWNER (Enterprise).
  *     tags: [Users]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -338,13 +391,18 @@ router.delete('/:id', authorize('ADMIN'), deleteUserController)
  *             type: object
  *             required: [role]
  *             properties:
- *               role: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
+ *               role:
+ *                 type: string
+ *                 enum: [ADMIN, DENTIST, SECRETARY, OWNER]
  *     responses:
- *       200: { description: Papel atualizado }
- *       400: { description: Papel inválido ou OWNER fora do Enterprise }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Apenas OWNER pode atribuir ou alterar OWNER }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *       200:
+ *         description: Papel atualizado com sucesso
+ *       400:
+ *         description: Você não pode alterar a sua própria permissão
+ *       403:
+ *         description: Sem permissão, limite de profissionais atingido ou alteração de OWNER não permitida
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
 router.patch('/:id/role', authorize('ADMIN'), updateUserRoleController)
 
@@ -352,11 +410,9 @@ router.patch('/:id/role', authorize('ADMIN'), updateUserRoleController)
  * @openapi
  * /users/{id}/status:
  *   patch:
- *     summary: Ativa ou desativa um usuário
- *     description: Requer ADMIN; limites do plano são verificados ao desativar ou reativar profissionais.
+ *     summary: Ativa ou desativa um usuário (ADMIN/OWNER; você não desativa a si mesmo)
+ *     description: Reativar um dentista respeita o limite de profissionais do pacote.
  *     tags: [Users]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -372,12 +428,38 @@ router.patch('/:id/role', authorize('ADMIN'), updateUserRoleController)
  *             properties:
  *               isActive: { type: boolean }
  *     responses:
- *       200: { description: Status atualizado }
- *       400: { description: Status inválido ou limite de profissionais atingido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *       200:
+ *         description: Status atualizado com sucesso
+ *       400:
+ *         description: Você não pode desativar a sua própria conta
+ *       403:
+ *         description: Sem permissão ou limite de profissionais atingido
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
 router.patch('/:id/status', authorize('ADMIN'), updateUserStatusController)
+
+/**
+ * @openapi
+ * /users/{id}:
+ *   delete:
+ *     summary: Remove um usuário da unidade ativa (ADMIN/OWNER; bloqueado se houver agendamentos vinculados)
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204:
+ *         description: Usuário removido com sucesso
+ *       400:
+ *         description: Usuário com agendamentos vinculados (desative em vez de excluir) ou tentativa de excluir a si mesmo
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.delete('/:id', authorize('ADMIN'), deleteUserController)
 
 export default router

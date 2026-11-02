@@ -1,17 +1,19 @@
+// backend/src/routes/transaction.routes.ts
+
 import { Router } from 'express'
 import {
   createTransactionController,
   listTransactionsController,
   getTransactionByIdController,
   updateTransactionController,
-  reconcileTransactionController,
   deleteTransactionController,
   getFinancialReportController,
 } from '../../controllers/transactionController'
 import { authenticate, authorize } from '../../middlewares/authMiddlewares'
-import { can } from '../../middlewares/rbac.middleware'
 
 const router = Router()
+
+// ─── Todas as rotas de transações são privadas ────────────────────────────────
 
 router.use(authenticate)
 
@@ -19,7 +21,7 @@ router.use(authenticate)
  * @openapi
  * /transactions/report:
  *   get:
- *     summary: Relatório financeiro e DRE consolidado por período
+ *     summary: Relatório financeiro consolidado por período da unidade ativa (ADMIN/OWNER)
  *     tags: [Transactions]
  *     parameters:
  *       - in: query
@@ -30,18 +32,9 @@ router.use(authenticate)
  *         name: endDate
  *         required: true
  *         schema: { type: string, format: date }
- *       - in: query
- *         name: type
- *         schema: { type: string, enum: [RECEITA, DESPESA] }
- *       - in: query
- *         name: costCenter
- *         schema: { type: string }
- *       - in: query
- *         name: isReconciled
- *         schema: { type: boolean }
  *     responses:
  *       200:
- *         description: Relatório com receitas, despesas, margens e centros de custo
+ *         description: Relatório com receitas, despesas e lucro do período
  *         content:
  *           application/json:
  *             schema:
@@ -53,7 +46,7 @@ router.use(authenticate)
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/report', can('FINANCIAL', 'READ'), getFinancialReportController)
+router.get('/report', authorize('ADMIN'), getFinancialReportController)
 
 /**
  * @openapi
@@ -72,16 +65,7 @@ router.get('/report', can('FINANCIAL', 'READ'), getFinancialReportController)
  *         name: category
  *         schema: { type: string }
  *       - in: query
- *         name: costCenter
- *         schema: { type: string }
- *       - in: query
- *         name: isReconciled
- *         schema: { type: boolean }
- *       - in: query
  *         name: supplierId
- *         schema: { type: string, format: uuid }
- *       - in: query
- *         name: accountReceivableId
  *         schema: { type: string, format: uuid }
  *       - in: query
  *         name: startDate
@@ -109,10 +93,8 @@ router.get('/report', can('FINANCIAL', 'READ'), getFinancialReportController)
  *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/', can('FINANCIAL', 'READ'), listTransactionsController)
+router.get('/', listTransactionsController)
 
 /**
  * @openapi
@@ -134,18 +116,20 @@ router.get('/', can('FINANCIAL', 'READ'), listTransactionsController)
  *               $ref: '#/components/schemas/Transaction'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.get('/:id', can('FINANCIAL', 'READ'), getTransactionByIdController)
+router.get('/:id', getTransactionByIdController)
 
 /**
  * @openapi
  * /transactions:
  *   post:
- *     summary: Cria uma transação financeira (receita ou despesa)
+ *     summary: Cria uma transação financeira (receita de atendimento ou despesa de fornecedor)
+ *     description: >
+ *       O financeiro é **por unidade** (a receita fica na unidade que recebeu). Com `appointmentId`, o agendamento passa a FINALIZADO
+ *       **depois** de a transação ser gravada e a baixa automática de estoque é disparada (idempotente: não baixa duas vezes).
+ *       No Enterprise, `treatmentPlanId` pode ser de um plano criado em outra unidade da rede.
  *     tags: [Transactions]
  *     requestBody:
  *       required: true
@@ -168,10 +152,6 @@ router.get('/:id', can('FINANCIAL', 'READ'), getTransactionByIdController)
  *                 type: string
  *               category:
  *                 type: string
- *               costCenter:
- *                 type: string
- *               isReconciled:
- *                 type: boolean
  *               appointmentId:
  *                 type: string
  *                 format: uuid
@@ -179,9 +159,6 @@ router.get('/:id', can('FINANCIAL', 'READ'), getTransactionByIdController)
  *                 type: string
  *                 format: uuid
  *               supplierId:
- *                 type: string
- *                 format: uuid
- *               accountReceivableId:
  *                 type: string
  *                 format: uuid
  *               paidAt:
@@ -203,13 +180,16 @@ router.get('/:id', can('FINANCIAL', 'READ'), getTransactionByIdController)
  *       409:
  *         description: Já existe transação vinculada a este agendamento
  */
-router.post('/', can('FINANCIAL', 'CREATE'), createTransactionController)
+router.post('/', authorize('ADMIN', 'SECRETARY'), createTransactionController)
 
 /**
  * @openapi
  * /transactions/{id}:
  *   put:
- *     summary: Atualiza os dados de uma transação
+ *     summary: Atualiza uma transação
+ *     description: >
+ *       Apenas os campos listados são aceitos; `tenantId`, `clinicId`, `appointmentId` e demais campos do corpo são ignorados.
+ *       Fornecedor e plano de tratamento informados são validados.
  *     tags: [Transactions]
  *     parameters:
  *       - in: path
@@ -223,6 +203,9 @@ router.post('/', can('FINANCIAL', 'CREATE'), createTransactionController)
  *           schema:
  *             type: object
  *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [RECEITA, DESPESA]
  *               amount:
  *                 type: number
  *               paymentMethod:
@@ -232,16 +215,16 @@ router.post('/', can('FINANCIAL', 'CREATE'), createTransactionController)
  *                 type: string
  *               category:
  *                 type: string
+ *               supplierId:
+ *                 type: string
+ *                 format: uuid
+ *               treatmentPlanId:
+ *                 type: string
+ *                 format: uuid
  *               costCenter:
  *                 type: string
  *               isReconciled:
  *                 type: boolean
- *               supplierId:
- *                 type: string
- *                 format: uuid
- *               accountReceivableId:
- *                 type: string
- *                 format: uuid
  *               paidAt:
  *                 type: string
  *                 format: date-time
@@ -257,39 +240,7 @@ router.post('/', can('FINANCIAL', 'CREATE'), createTransactionController)
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.put('/:id', can('FINANCIAL', 'UPDATE'), updateTransactionController)
-
-/**
- * @openapi
- * /transactions/{id}/reconcile:
- *   patch:
- *     summary: Alterna o status de conciliação bancária/caixa da transação
- *     tags: [Transactions]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [isReconciled]
- *             properties:
- *               isReconciled: { type: boolean }
- *     responses:
- *       200:
- *         description: Status de conciliação atualizado com sucesso
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
- *       404:
- *         $ref: '#/components/responses/NotFound'
- */
-router.patch('/:id/reconcile', can('FINANCIAL', 'UPDATE'), reconcileTransactionController)
+router.put('/:id', authorize('ADMIN', 'SECRETARY'), updateTransactionController)
 
 /**
  * @openapi

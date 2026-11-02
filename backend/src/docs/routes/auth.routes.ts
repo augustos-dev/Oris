@@ -1,3 +1,5 @@
+// backend/src/routes/auth.routes.ts
+
 import { Router } from 'express'
 import {
   registerController,
@@ -7,16 +9,100 @@ import {
   switchClinicController,
 } from '../../controllers/authController'
 import { authenticate, authorize } from '../../middlewares/authMiddlewares'
-import { loginLimiter } from '../../middlewares/rateLimiter.middleware'
 
 const router = Router()
 
 /**
  * @openapi
+ * components:
+ *   schemas:
+ *     NetworkClinic:
+ *       type: object
+ *       description: Unidade (clínica) que o usuário pode acessar
+ *       properties:
+ *         id: { type: string, format: uuid }
+ *         name: { type: string, example: "Messejana" }
+ *         logoUrl: { type: string, nullable: true }
+ *         cnpj: { type: string, nullable: true }
+ *         phone: { type: string, nullable: true }
+ *     AuthMeResponse:
+ *       type: object
+ *       properties:
+ *         id: { type: string, format: uuid }
+ *         name: { type: string }
+ *         email: { type: string, format: email }
+ *         role: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
+ *         phone: { type: string, nullable: true }
+ *         cro: { type: string, nullable: true }
+ *         avatarUrl: { type: string, nullable: true }
+ *         lastLoginAt: { type: string, format: date-time, nullable: true }
+ *         createdAt: { type: string, format: date-time }
+ *         tenant:
+ *           type: object
+ *           properties:
+ *             id: { type: string, format: uuid }
+ *             name: { type: string }
+ *             slug: { type: string }
+ *             plan: { type: string, enum: [BASIC, PREMIUM, ENTERPRISE] }
+ *             status: { type: string }
+ *             trialEndsAt: { type: string, format: date-time, nullable: true }
+ *             isBetaPartner: { type: boolean }
+ *         clinic:
+ *           $ref: '#/components/schemas/NetworkClinic'
+ *         clinics:
+ *           type: array
+ *           description: Unidades que o usuário pode acessar (OWNER vê todas as ativas do tenant)
+ *           items: { $ref: '#/components/schemas/NetworkClinic' }
+ */
+
+// ─── Rotas Públicas ──────────────────────────────────────────────────────────
+
+/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     summary: Autentica um usuário e retorna o token JWT
+ *     description: >
+ *       Limite de 5 tentativas incorretas por IP + e-mail a cada 15 minutos (429). Além disso, 5 senhas erradas
+ *       seguidas bloqueiam a conta por 15 minutos.
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LoginDTO'
+ *     responses:
+ *       200:
+ *         description: Login realizado com sucesso. O token carrega a unidade principal do usuário como unidade ativa.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       429:
+ *         description: Muitas tentativas ou conta temporariamente bloqueada
+ */
+router.post('/login', loginController)
+
+// ─── Rotas Privadas (exigem JWT válido) ──────────────────────────────────────
+
+router.use(authenticate)
+
+/**
+ * @openapi
  * /auth/register:
  *   post:
- *     summary: Cadastra um colaborador no tenant do usuário autenticado
- *     description: Requer ADMIN; OWNER também é aceito. O tenant é obtido exclusivamente do JWT. ADMIN cadastra na própria unidade; OWNER pode informar clinicId. Não cria tenant nem permite cadastrar OWNER por esta operação.
+ *     summary: Cadastra um colaborador na clínica (apenas ADMIN ou OWNER autenticado)
+ *     description: >
+ *       **Esta rota deixou de ser pública.** O `tenantId` vem sempre do token (não é aceito no corpo).
+ *       A unidade é a do usuário autenticado; apenas o OWNER pode informar `clinicId` para cadastrar em outra unidade da rede.
+ *       O papel `OWNER` não pode ser atribuído por aqui. Dentistas respeitam o limite de profissionais do pacote contratado.
+ *       A resposta traz o token do **novo** usuário.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -28,122 +114,86 @@ const router = Router()
  *             type: object
  *             required: [name, email, password, role]
  *             properties:
- *               name: { type: string, example: "Dra. Mariana Costa" }
- *               email: { type: string, format: email, example: "mariana@clinica.com.br" }
- *               password: { type: string, minLength: 6, example: "SenhaForte@123" }
+ *               name: { type: string }
+ *               email: { type: string, format: email }
+ *               password: { type: string, minLength: 6 }
  *               role: { type: string, enum: [ADMIN, DENTIST, SECRETARY] }
- *               phone: { type: string, example: "85999990000" }
- *               cro: { type: string, example: "CE-12345" }
- *               clinicId:
- *                 type: string
- *                 format: uuid
- *                 description: Unidade de destino, considerada somente para OWNER. Para ADMIN, a unidade da sessão é usada.
+ *               phone: { type: string }
+ *               cro: { type: string }
+ *               clinicId: { type: string, format: uuid, description: "Somente OWNER. Padrão: unidade ativa." }
  *     responses:
  *       201:
- *         description: Colaborador criado e token de acesso emitido
+ *         description: Usuário criado com sucesso
  *         content:
  *           application/json:
- *             schema: { $ref: '#/components/schemas/AuthResponse' }
- *       400: { description: Dados inválidos }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { description: Tenant ou unidade não encontrados/inativos }
- *       409: { description: E-mail já cadastrado }
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Sem permissão, papel OWNER solicitado, ou limite de profissionais do pacote atingido
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         $ref: '#/components/responses/Conflict'
  */
-router.post('/register', authenticate, authorize('ADMIN'), registerController)
-
-/**
- * @openapi
- * /auth/login:
- *   post:
- *     summary: Autentica o usuário com e-mail e senha
- *     description: O endpoint possui limite de tentativas; logins bem-sucedidos não consomem a cota.
- *     tags: [Auth]
- *     security: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema: { $ref: '#/components/schemas/LoginDTO' }
- *     responses:
- *       200:
- *         description: Autenticação concluída
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/AuthResponse' }
- *       400: { description: Dados inválidos }
- *       401: { description: E-mail ou senha inválidos }
- *       403: { description: Usuário ou assinatura inativos, ou conta temporariamente bloqueada }
- *       429: { description: Limite de tentativas excedido }
- */
-router.post('/login', loginLimiter, loginController)
+router.post('/register', authorize('ADMIN'), registerController)
 
 /**
  * @openapi
  * /auth/me:
  *   get:
- *     summary: Retorna o perfil e as unidades acessíveis pelo usuário autenticado
+ *     summary: Retorna o perfil do usuário autenticado, a unidade ativa e as unidades acessíveis
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Perfil, tenant, unidade ativa e lista de unidades acessíveis
+ *         description: Dados do usuário autenticado
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 id: { type: string, format: uuid }
- *                 name: { type: string }
- *                 email: { type: string, format: email }
- *                 role: { type: string, enum: [ADMIN, DENTIST, SECRETARY, OWNER] }
- *                 clinic: { type: object, description: Unidade ativa }
- *                 clinics: { type: array, items: { type: object }, description: Unidades às quais o usuário tem acesso }
- *                 tenant: { type: object }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { $ref: '#/components/responses/Forbidden' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *               $ref: '#/components/schemas/AuthMeResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: O usuário não tem mais acesso à unidade ativa do token (faça login novamente)
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
  */
-router.get('/me', authenticate, getMeController)
+router.get('/me', getMeController)
 
 /**
  * @openapi
  * /auth/clinics:
  *   get:
- *     summary: Lista as unidades acessíveis pelo usuário autenticado
- *     description: OWNER recebe as unidades ativas do tenant; os demais recebem a unidade principal e as unidades vinculadas a sua conta.
- *     tags: [Auth]
+ *     summary: Lista as unidades que o usuário pode acessar (rede Enterprise)
+ *     description: A unidade principal e os vínculos em `user_clinics`. O papel OWNER enxerga todas as unidades ativas do tenant.
+ *     tags: [Auth - Rede]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Unidades disponíveis para troca
+ *         description: Unidades acessíveis, em ordem alfabética
  *         content:
  *           application/json:
  *             schema:
  *               type: array
- *               items:
- *                 type: object
- *                 required: [id, name]
- *                 properties:
- *                   id: { type: string, format: uuid }
- *                   name: { type: string }
- *                   logoUrl: { type: string, nullable: true }
- *                   cnpj: { type: string, nullable: true }
- *                   phone: { type: string, nullable: true }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *               items: { $ref: '#/components/schemas/NetworkClinic' }
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  */
-router.get('/clinics', authenticate, listMyClinicsController)
+router.get('/clinics', listMyClinicsController)
 
 /**
  * @openapi
  * /auth/switch-clinic:
  *   post:
- *     summary: Troca a unidade ativa da sessão
- *     description: Valida o acesso à unidade no banco e retorna um novo JWT com o clinicId selecionado.
- *     tags: [Auth]
+ *     summary: Troca a unidade ativa da sessão e devolve um novo token
+ *     description: >
+ *       O acesso à unidade é validado no banco. Depois da troca, todas as rotas passam a operar na nova unidade
+ *       (agenda, estoque, financeiro e as buscas de pacientes de planos não-Enterprise). Substitua o token guardado pelo novo.
+ *     tags: [Auth - Rede]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -157,15 +207,18 @@ router.get('/clinics', authenticate, listMyClinicsController)
  *               clinicId: { type: string, format: uuid }
  *     responses:
  *       200:
- *         description: Unidade alterada; novo token emitido
+ *         description: Unidade trocada. O `user.clinicId` da resposta é a nova unidade ativa.
  *         content:
  *           application/json:
- *             schema: { $ref: '#/components/schemas/AuthResponse' }
- *       400: { description: clinicId ausente ou inválido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Usuário não tem acesso à unidade solicitada }
- *       404: { $ref: '#/components/responses/NotFound' }
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: clinicId não informado
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Sem acesso a esta unidade
  */
-router.post('/switch-clinic', authenticate, switchClinicController)
+router.post('/switch-clinic', switchClinicController)
 
 export default router

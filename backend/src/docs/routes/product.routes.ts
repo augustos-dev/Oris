@@ -20,7 +20,9 @@ productRouter.use(authenticate)
  * @openapi
  * tags:
  *   name: Products
- *   description: Gestão de estoque, insumos e rastreabilidade sanitária
+ *   description: >
+ *     Gestão de estoque, insumos e rastreabilidade sanitária. **O estoque é por unidade:** cada clínica tem os próprios produtos
+ *     (mesmo na rede Enterprise), e a baixa automática por procedimento consome só os produtos da unidade do atendimento.
  */
 
 /**
@@ -195,6 +197,9 @@ productRouter.post('/', authorize('ADMIN', 'SECRETARY'), createProductController
  * /products/{id}:
  *   put:
  *     summary: Atualiza os dados de um produto (Lote, Validade, Custo, Rendimento, Qtds, Observações)
+ *     description: >
+ *       Apenas os campos listados abaixo são aceitos; o restante do corpo é ignorado (tenantId, clinicId e id nunca mudam).
+ *       Alterar `quantity` por aqui **não gera movimentação** no histórico: para entradas e saídas use `PATCH /products/{id}/stock`.
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -233,7 +238,7 @@ productRouter.post('/', authorize('ADMIN', 'SECRETARY'), createProductController
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         $ref: '#/components/responses/NotFound'
+ *         description: Produto ou fornecedor informado não encontrado nesta unidade
  */
 productRouter.put('/:id', authorize('ADMIN', 'SECRETARY'), updateProductController)
 
@@ -242,6 +247,7 @@ productRouter.put('/:id', authorize('ADMIN', 'SECRETARY'), updateProductControll
  * /products/{id}/stock:
  *   patch:
  *     summary: Ajusta o estoque de um produto e registra histórico em StockMovement
+ *     description: Registra `ENTRY` (delta positivo) ou `EXIT_MANUAL` (delta negativo) com a quantidade em valor absoluto.
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
