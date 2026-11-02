@@ -13,7 +13,10 @@ router.use(authenticate)
  * /stock-movements:
  *   get:
  *     summary: Listar histórico de movimentações de estoque
- *     description: Retorna o histórico paginado de entradas, saídas manuais e baixas automáticas por procedimento na clínica.
+ *     description: >
+ *       Retorna o histórico paginado de entradas, saídas manuais e baixas automáticas por procedimento **da unidade ativa**.
+ *       Atenção ao sinal de `quantity`: depende da origem (`EXIT_MANUAL` criado por esta API grava valor negativo; `ENTRY`, `EXIT_AUTO` e os ajustes de
+ *       `PATCH /products/{id}/stock` gravam valor positivo). Para saber o sentido use sempre `type`.
  *     tags:
  *       - Stock Movements
  *     security:
@@ -96,11 +99,20 @@ router.use(authenticate)
  *                         type: string
  *                         enum: [ENTRY, EXIT_MANUAL, EXIT_AUTO]
  *                       quantity:
- *                         type: integer
- *                         example: -2
+ *                         type: number
+ *                         example: 2.5
+ *                         description: Aceita decimais. Para EXIT_AUTO é a quantidade realmente baixada (pode ser menor que a da ficha técnica se faltou saldo).
+ *                       appointmentId:
+ *                         type: string
+ *                         format: uuid
+ *                         nullable: true
+ *                       procedureId:
+ *                         type: string
+ *                         format: uuid
+ *                         nullable: true
  *                       reason:
  *                         type: string
- *                         example: "Baixa Automática: Paciente Vicente Augusto (Agendamento #XYZ)"
+ *                         example: "Exit Inteligente: Procedimento Realizado (Agendamento: 9f2c...)"
  *                       createdAt:
  *                         type: string
  *                         format: date-time
@@ -166,9 +178,9 @@ router.get(
  *                 example: "ENTRY"
  *                 description: Tipo da movimentação (ENTRY para entrada, EXIT_MANUAL para saída)
  *               quantity:
- *                 type: integer
+ *                 type: number
  *                 example: 10
- *                 description: Quantidade movimentada (deve ser maior que zero)
+ *                 description: Quantidade movimentada (maior que zero; aceita decimais)
  *               reason:
  *                 type: string
  *                 example: "Reposição de estoque semanal - Nota Fiscal 1042"
@@ -195,7 +207,7 @@ router.get(
  *                         name:
  *                           type: string
  *                         quantity:
- *                           type: integer
+ *                           type: number
  *                           example: 35
  *                     movement:
  *                       type: object
@@ -206,16 +218,18 @@ router.get(
  *                           type: string
  *                           example: "ENTRY"
  *                         quantity:
- *                           type: integer
+ *                           type: number
  *                           example: 10
  *                         reason:
  *                           type: string
  *       400:
- *         description: Quantidade inválida ou saldo insuficiente para saída manual.
+ *         description: Quantidade inválida ou saldo insuficiente para saída manual (a checagem é atômica, então duas saídas simultâneas não deixam o saldo negativo).
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         $ref: '#/components/responses/NotFound'
+ *         description: Produto não encontrado no estoque da unidade
  */
 router.post(
   '/',

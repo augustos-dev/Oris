@@ -1,3 +1,5 @@
+// backend/src/routes/dashboard.routes.ts
+
 import { Router } from 'express'
 import {
   getDashboardSummaryController,
@@ -10,57 +12,53 @@ import { authenticate, authorize } from '../../middlewares/authMiddlewares'
 
 const router = Router()
 
-router.use(authenticate, authorize('ADMIN'))
+// ─── Todas as rotas do dashboard são privadas e exclusivas de ADMIN (e OWNER) ─
+
+router.use(authenticate)
+router.use(authorize('ADMIN'))
+
+/**
+ * @openapi
+ * components:
+ *   parameters:
+ *     DashboardScope:
+ *       in: query
+ *       name: scope
+ *       schema: { type: string, enum: [clinic, network], default: clinic }
+ *       description: >
+ *         `clinic` (padrão) = unidade ativa. `network` = consolidado de todas as unidades do tenant
+ *         (exclusivo do OWNER; 403 para os demais).
+ *   schemas:
+ *     ClinicBreakdownRow:
+ *       type: object
+ *       properties:
+ *         clinicId: { type: string, format: uuid }
+ *         name: { type: string, example: "Messejana" }
+ *         monthRevenue: { type: number }
+ *         monthExpenses: { type: number }
+ *         monthProfit: { type: number }
+ *         appointmentsThisMonth: { type: integer }
+ *         appointmentsFinalizedThisMonth: { type: integer }
+ *         newPatientsThisMonth: { type: integer }
+ */
 
 /**
  * @openapi
  * /dashboard/summary:
  *   get:
- *     summary: Retorna os indicadores de pacientes, agenda, financeiro e estoque
- *     description: Por padrão consulta a unidade ativa. OWNER pode enviar scope=network para consolidar a rede Enterprise.
+ *     summary: Retorna visão geral consolidada (pacientes, agendamentos, financeiro, estoque)
  *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: scope
- *         schema: { type: string, enum: [network] }
- *         description: Use network para visão consolidada; exclusiva do OWNER.
+ *       - $ref: '#/components/parameters/DashboardScope'
  *     responses:
  *       200:
- *         description: Resumo do dashboard
+ *         description: Resumo do dia, semana e mês
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 patients:
- *                   type: object
- *                   properties:
- *                     total: { type: integer }
- *                     newThisMonth: { type: integer }
- *                 appointments:
- *                   type: object
- *                   properties:
- *                     today: { type: integer }
- *                     thisWeek: { type: integer }
- *                     thisMonth: { type: integer }
- *                     byStatus: { type: object, additionalProperties: { type: integer } }
- *                 financial:
- *                   type: object
- *                   properties:
- *                     todayRevenue: { type: number }
- *                     weekRevenue: { type: number }
- *                     monthRevenue: { type: number }
- *                     monthExpenses: { type: number }
- *                     monthProfit: { type: number }
- *                 inventory:
- *                   type: object
- *                   properties:
- *                     lowStockCount: { type: integer }
- *                     expiringCount: { type: integer }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Apenas ADMIN/OWNER; scope=network é exclusivo do OWNER }
+ *               $ref: '#/components/schemas/DashboardSummary'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/summary', getDashboardSummaryController)
 
@@ -68,27 +66,21 @@ router.get('/summary', getDashboardSummaryController)
  * @openapi
  * /dashboard/revenue-chart:
  *   get:
- *     summary: Retorna receitas, despesas e lucro por dia no período
- *     description: Por padrão usa o mês atual. OWNER pode usar scope=network para consolidar todas as unidades Enterprise.
+ *     summary: Retorna receita e despesa diária para gráfico no período informado
  *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/DashboardScope'
  *       - in: query
  *         name: startDate
  *         schema: { type: string, format: date }
- *         description: Data inicial inclusiva (YYYY-MM-DD)
+ *         description: Padrão é o início do mês atual
  *       - in: query
  *         name: endDate
  *         schema: { type: string, format: date }
- *         description: Data final inclusiva (YYYY-MM-DD)
- *       - in: query
- *         name: scope
- *         schema: { type: string, enum: [network] }
- *         description: Use network para visão consolidada; exclusiva do OWNER.
+ *         description: Padrão é o fim do mês atual
  *     responses:
  *       200:
- *         description: Série diária de receitas, despesas e lucro
+ *         description: Array com receitas, despesas e lucro por dia
  *         content:
  *           application/json:
  *             schema:
@@ -100,9 +92,8 @@ router.get('/summary', getDashboardSummaryController)
  *                   receitas: { type: number }
  *                   despesas: { type: number }
  *                   lucro: { type: number }
- *       400: { description: Período inválido }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Apenas ADMIN/OWNER; scope=network é exclusivo do OWNER }
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/revenue-chart', getRevenueChartController)
 
@@ -110,24 +101,21 @@ router.get('/revenue-chart', getRevenueChartController)
  * @openapi
  * /dashboard/upcoming-appointments:
  *   get:
- *     summary: Lista os próximos agendamentos da unidade ativa
- *     description: OWNER pode enviar scope=network para incluir todas as unidades Enterprise.
+ *     summary: Lista os próximos 10 agendamentos confirmados ou agendados
+ *     description: Com `scope=network`, cada item traz a unidade (`clinic`).
  *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: scope
- *         schema: { type: string, enum: [network] }
- *         description: Use network para visão consolidada; exclusiva do OWNER.
+ *       - $ref: '#/components/parameters/DashboardScope'
  *     responses:
  *       200:
- *         description: Próximos agendamentos
+ *         description: Lista de próximos agendamentos
  *         content:
  *           application/json:
- *             schema: { type: array, items: { type: object } }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Apenas ADMIN/OWNER; scope=network é exclusivo do OWNER }
+ *             schema:
+ *               type: array
+ *               items: { $ref: '#/components/schemas/Appointment' }
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/upcoming-appointments', getUpcomingAppointmentsController)
 
@@ -135,19 +123,13 @@ router.get('/upcoming-appointments', getUpcomingAppointmentsController)
  * @openapi
  * /dashboard/top-dentists:
  *   get:
- *     summary: Retorna os dentistas com mais atendimentos no mês
- *     description: OWNER pode enviar scope=network para consolidar os resultados entre unidades Enterprise.
+ *     summary: Ranking dos 5 dentistas com mais atendimentos finalizados no mês
  *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: scope
- *         schema: { type: string, enum: [network] }
- *         description: Use network para visão consolidada; exclusiva do OWNER.
+ *       - $ref: '#/components/parameters/DashboardScope'
  *     responses:
  *       200:
- *         description: Ranking de dentistas
+ *         description: Lista ordenada de dentistas por número de atendimentos
  *         content:
  *           application/json:
  *             schema:
@@ -157,10 +139,10 @@ router.get('/upcoming-appointments', getUpcomingAppointmentsController)
  *                 properties:
  *                   dentistId: { type: string, format: uuid }
  *                   name: { type: string }
- *                   cro: { type: string, nullable: true }
+ *                   cro: { type: string }
  *                   appointmentsCount: { type: integer }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Apenas ADMIN/OWNER; scope=network é exclusivo do OWNER }
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/top-dentists', getTopDentistsController)
 
@@ -168,30 +150,19 @@ router.get('/top-dentists', getTopDentistsController)
  * @openapi
  * /dashboard/clinics-breakdown:
  *   get:
- *     summary: Compara indicadores financeiros e clínicos entre unidades
- *     description: Endpoint exclusivo do OWNER da rede Enterprise; os dados são referentes ao mês atual.
- *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
+ *     summary: Comparativo do mês entre as unidades da rede (exclusivo do OWNER)
+ *     description: Receita, despesa, lucro, atendimentos e pacientes novos do mês corrente, por unidade ativa.
+ *     tags: [Dashboard - Rede]
  *     responses:
  *       200:
- *         description: Indicadores do mês agrupados por unidade
+ *         description: Uma linha por unidade ativa
  *         content:
  *           application/json:
  *             schema:
  *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   clinicId: { type: string, format: uuid }
- *                   name: { type: string }
- *                   revenue: { type: number }
- *                   expenses: { type: number }
- *                   profit: { type: number }
- *                   appointments: { type: integer }
- *                   newPatients: { type: integer }
- *       401: { $ref: '#/components/responses/Unauthorized' }
- *       403: { description: Endpoint exclusivo do OWNER }
+ *               items: { $ref: '#/components/schemas/ClinicBreakdownRow' }
+ *       403:
+ *         description: Exclusivo do dono da rede (OWNER)
  */
 router.get('/clinics-breakdown', getClinicsBreakdownController)
 

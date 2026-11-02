@@ -8,9 +8,7 @@ import {
   updatePatientController,
   deletePatientController,
 } from '../../controllers/patientController'
-import { generateAnamnesisTokenController } from '../../controllers/medicalRecordController'
 import { authenticate, authorize } from '../../middlewares/authMiddlewares'
-import { can } from '../../middlewares/rbac.middleware'
 
 const router = Router()
 
@@ -20,9 +18,32 @@ router.use(authenticate)
 
 /**
  * @openapi
+ * components:
+ *   schemas:
+ *     PatientExistsError:
+ *       type: object
+ *       description: >
+ *         Plano Enterprise: o CPF já está cadastrado na rede. O front deve abrir o paciente existente
+ *         (`details.patientId`) em vez de criar outro.
+ *       properties:
+ *         message: { type: string, example: "Este CPF já está cadastrado na rede. Abra o cadastro existente em vez de criar outro." }
+ *         details:
+ *           type: object
+ *           properties:
+ *             code: { type: string, example: PATIENT_EXISTS_IN_NETWORK }
+ *             patientId: { type: string, format: uuid }
+ *             patientName: { type: string }
+ *             registeredAt: { type: string, example: "Messejana", description: "Unidade onde foi cadastrado" }
+ */
+
+/**
+ * @openapi
  * /patients:
  *   get:
  *     summary: Lista pacientes com filtros e paginação
+ *     description: >
+ *       **Planos Basic/Premium:** apenas os pacientes da unidade. **Plano Enterprise:** busca na rede inteira (o paciente é achado pelo CPF
+ *       em qualquer unidade); cada item traz a unidade de origem em `clinic`. Use `clinicId` para restringir a uma unidade.
  *     tags: [Patients]
  *     parameters:
  *       - in: query
@@ -32,15 +53,19 @@ router.use(authenticate)
  *       - in: query
  *         name: cpf
  *         schema: { type: string }
- *         description: Filtra por dígitos do CPF
+ *         description: Filtra por CPF (aceita com ou sem pontuação)
  *       - in: query
  *         name: phone
  *         schema: { type: string }
- *         description: Filtra por número de telefone
+ *         description: Filtra por telefone
  *       - in: query
  *         name: insuranceName
  *         schema: { type: string }
- *         description: Filtra por nome da operadora/convênio
+ *         description: Filtra por convênio/operadora
+ *       - in: query
+ *         name: clinicId
+ *         schema: { type: string, format: uuid }
+ *         description: Enterprise - restringe a busca da rede a uma unidade
  *       - in: query
  *         name: page
  *         schema: { type: integer, default: 1 }
@@ -61,16 +86,17 @@ router.use(authenticate)
  *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/', can('PATIENTS', 'READ'), listPatientsController)
+router.get('/', listPatientsController)
 
 /**
  * @openapi
  * /patients/{id}:
  *   get:
  *     summary: Busca um paciente por ID com prontuário e histórico
+ *     description: >
+ *       No Enterprise o paciente pode pertencer a outra unidade da rede; esse acesso fica registrado na auditoria (`action: READ`).
+ *       Os últimos agendamentos trazem a unidade (`clinic`) de cada atendimento.
  *     tags: [Patients]
  *     parameters:
  *       - in: path
@@ -84,18 +110,19 @@ router.get('/', can('PATIENTS', 'READ'), listPatientsController)
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Patient'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.get('/:id', can('PATIENTS', 'READ'), getPatientByIdController)
+router.get('/:id', getPatientByIdController)
 
 /**
  * @openapi
  * /patients:
  *   post:
- *     summary: Cria um novo paciente com prontuário vinculado
+ *     summary: Cria um novo paciente (e prontuário vinculado)
+ *     description: >
+ *       O CPF é único por tenant. No **Enterprise**, se já existir na rede a resposta 409 traz `details.patientId` para abrir o cadastro existente.
+ *       Um CPF de cadastro desativado (soft delete) também retorna 409; peça a reativação ao administrador.
  *     tags: [Patients]
  *     requestBody:
  *       required: true
@@ -110,20 +137,25 @@ router.get('/:id', can('PATIENTS', 'READ'), getPatientByIdController)
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Patient'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       409:
- *         $ref: '#/components/responses/Conflict'
+ *         description: CPF já cadastrado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - $ref: '#/components/schemas/PatientExistsError'
+ *                 - $ref: '#/components/schemas/Error'
  */
-router.post('/', can('PATIENTS', 'CREATE'), createPatientController)
+router.post('/', authorize('ADMIN', 'SECRETARY', 'DENTIST'), createPatientController)
 
 /**
  * @openapi
  * /patients/{id}:
  *   put:
- *     summary: Atualiza os dados cadastrais e prontuário de um paciente
+ *     summary: Atualiza os dados de um paciente
+ *     description: No Enterprise, qualquer unidade da rede pode atualizar o cadastro (telefone, endereço, convênio...).
  *     tags: [Patients]
  *     parameters:
  *       - in: path
@@ -135,16 +167,10 @@ router.post('/', can('PATIENTS', 'CREATE'), createPatientController)
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/UpdatePatientDTO'
+ *             $ref: '#/components/schemas/CreatePatientDTO'
  *     responses:
  *       200:
  *         description: Paciente atualizado com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Patient'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:
@@ -152,46 +178,13 @@ router.post('/', can('PATIENTS', 'CREATE'), createPatientController)
  *       409:
  *         $ref: '#/components/responses/Conflict'
  */
-router.put('/:id', can('PATIENTS', 'UPDATE'), updatePatientController)
-
-/**
- * @openapi
- * /patients/{id}/anamnesis-token:
- *   post:
- *     summary: Emite token seguro de anamnese digital com validade de 36 horas
- *     tags: [Patients]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200:
- *         description: Token gerado com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 token: { type: string }
- *                 expiresInHours: { type: integer, example: 36 }
- *                 expiresAt: { type: string, format: date-time }
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       404:
- *         $ref: '#/components/responses/NotFound'
- */
-router.post(
-  '/:id/anamnesis-token',
-  authorize('ADMIN', 'SECRETARY', 'DENTIST'),
-  generateAnamnesisTokenController
-)
+router.put('/:id', authorize('ADMIN', 'SECRETARY', 'DENTIST'), updatePatientController)
 
 /**
  * @openapi
  * /patients/{id}:
  *   delete:
- *     summary: Remove um paciente (soft delete)
+ *     summary: Remove um paciente (soft delete; ADMIN ou OWNER)
  *     tags: [Patients]
  *     parameters:
  *       - in: path
@@ -201,8 +194,6 @@ router.post(
  *     responses:
  *       204:
  *         description: Paciente removido com sucesso
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       404:
